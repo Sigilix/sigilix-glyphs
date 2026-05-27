@@ -1,0 +1,55 @@
+name: lint
+
+# Required by Sigilix org ruleset on every branch. This repo holds only
+# SVG glyphs (no application code, no JS, no markdown beyond README),
+# so the lint is just "every .svg parses as XML and has the expected
+# Sigilix badge shape we serve from raw.githubusercontent.com/<tag>".
+#
+# Without this workflow the org ruleset blocks merge with
+# "Required status check `lint` is expected" on every PR.
+
+on:
+  pull_request:
+  push:
+    branches: [init]
+
+jobs:
+  svg-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate every .svg parses as XML
+        run: |
+          set -euo pipefail
+          fail=0
+          for f in $(ls *.svg 2>/dev/null); do
+            if xmllint --noout "$f" 2>/dev/null; then
+              echo "ok: $f"
+            else
+              echo "::error file=$f::svg is not valid XML"
+              fail=1
+            fi
+          done
+          exit $fail
+      - name: Sanity-check every .svg is a Sigilix-shaped badge
+        run: |
+          set -euo pipefail
+          fail=0
+          for f in $(ls *.svg 2>/dev/null); do
+            # Every badge must have an <svg> root, a <rect> with fill, and
+            # an aria-label so the bot's <img alt> matches. Trivial guards
+            # against an accidentally-corrupted commit.
+            if ! grep -q '<svg ' "$f"; then
+              echo "::error file=$f::missing <svg> root"
+              fail=1
+            fi
+            if ! grep -q '<rect ' "$f"; then
+              echo "::error file=$f::missing <rect> fill"
+              fail=1
+            fi
+            if ! grep -q 'aria-label=' "$f"; then
+              echo "::error file=$f::missing aria-label"
+              fail=1
+            fi
+          done
+          exit $fail
