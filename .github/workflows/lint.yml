@@ -1,0 +1,74 @@
+name: lint
+
+# Required by Sigilix org ruleset on every branch. This repo holds only
+# SVG glyphs (no application code, no JS, no markdown beyond README),
+# so the lint is a Sigilix-shape sanity check on every .svg file plus
+# a geometry guard for the SIG-238 r7 inset fix (transparent 6px
+# padding around every visible badge rect).
+#
+# Without this workflow the org ruleset blocks merge with
+# "Required status check `lint` is expected" on every PR.
+
+on:
+  pull_request:
+  push:
+    branches: [init]
+
+jobs:
+  # Job ID MUST be `lint` to match the org-level required-status-check
+  # context name (`{"context":"lint"}` in the ruleset). GitHub matches
+  # required checks by job-id, not workflow name. Earlier attempt
+  # named this `svg-lint` and the required check stayed "Expected —
+  # Waiting for status to be reported" forever.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      # Pinned to v4.3.1 SHA per CR security best-practice (supply-chain
+      # defense — a `@v4` major-tag could be silently retargeted by a
+      # compromised maintainer). `persist-credentials: false` keeps the
+      # default-injected `GITHUB_TOKEN` out of `.git/config` so any
+      # subsequent step that shells out can't accidentally exfiltrate.
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Sanity-check every .svg is a Sigilix-shaped, SIG-238-r7-padded badge
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=( *.svg )
+          if (( ${#files[@]} == 0 )); then
+            echo "::error::no .svg files at repo root — a glyphs repo without glyphs is degenerate"
+            exit 1
+          fi
+          fail=0
+          for f in "${files[@]}"; do
+            problems=()
+            # Structural sanity (every SVG must have these to render as
+            # an <img> at all).
+            grep -q '<svg ' "$f"             || problems+=("missing <svg> root")
+            grep -q '<rect '  "$f"           || problems+=("missing <rect> element")
+            grep -Eq '<rect [^>]*fill="#' "$f" \
+                                              || problems+=("missing <rect> fill (need a hex color)")
+            grep -q 'aria-label=' "$f"       || problems+=("missing aria-label")
+            # SIG-238 r7 geometry guard. The transparent-inset fix
+            # exists because GitHub Primer's `.markdown-body img
+            # { border-radius: ~6px }` would otherwise round the
+            # colored corners. Catching a glyph that wasn't re-baked
+            # with the inset here means we don't ship a tagged release
+            # that silently regresses to rounded badges. Founder's
+            # 2026-05-26 screenshot was the cost of NOT having this
+            # check on round 6.
+            grep -q 'viewBox="0 0' "$f"      || problems+=("missing viewBox attribute")
+            grep -q 'translate(6 6)' "$f"    || problems+=("missing <g translate(6 6)> wrap (SIG-238 r7 inset)")
+            if (( ${#problems[@]} > 0 )); then
+              for p in "${problems[@]}"; do
+                echo "::error file=$f::$p"
+              done
+              fail=1
+            else
+              echo "ok: $f"
+            fi
+          done
+          exit $fail
