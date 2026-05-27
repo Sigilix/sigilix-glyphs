@@ -21,7 +21,13 @@ on:
     branches: [init]
 
 jobs:
-  svg-lint:
+  # Job ID MUST be `lint` to match the org-level required-status-check
+  # context name (`{"context":"lint"}` in the ruleset). GitHub reports
+  # the check as `<workflow-name> / <job-id>` → `lint / lint` here, but
+  # the required-check matcher uses just the job id. An earlier attempt
+  # named this `svg-lint` and the required check stayed "Expected —
+  # Waiting for status to be reported" forever.
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
